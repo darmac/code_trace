@@ -1,35 +1,30 @@
-# Power Magager Notes
-
-## Power Manager 的组成结构：
-```
-Power Supply : Battery&Charger Driver Framework
-
-PM Core
-	Generic PM
-		power off
-		reboot
-		hibernate
-		suspend(STD/STR)
-
-	Runtime PM
-
-	CPU Idle
-
-	Wakelock
-	
-PM QOS
-
-Drivers
-	PM callback operations
-
-Power Saving
-	CPU Freq, Dev Freq : cpu/dev 电压频率调节
-	OPP(Operating Performance Point) : 是指可以使SOCs或者Devices正常工作的电压和频率组合
-	Clock Framework : clock driver framework
-	Regulator Framework : voltage/current regulator driver framework
-```
-
 ## Reboot Flow
+
+### API outline
+```
+SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,void __user *, arg)
+==
+sys_reboot(int magic1, int magic2, unsigned int cmd, void __user* arg)
+	kernel_restart()
+		kernel_restart_prepare()
+			blocking_notifier_call_chain(&reboot_notifier_list, SYS_RESTART, cmd);
+			system_state = SYSTEM_RESTART;
+			usermodehelper_disable();
+			device_shutdown() : 遍历devices_kset
+				list_del_init(&dev->kobj.entry);
+				pm_runtime_get_noresume(dev);
+				dev->class->shutdown_pre(dev);
+				dev->bus->shutdown(dev) or dev->driver->shutdown(dev);
+		migrate_to_reboot_cpu()
+		syscore_shutdown()
+			从后往前依次 call syscore_ops_list : ops->shutdown()
+		kmsg_dump()
+			依次遍历 call dump_list : dumper->dump()
+		machine_restart()
+			local_irq_disable();
+			smp_send_stop();
+			arm_pm_restart(); or do_kernel_restart(cmd);
+```
 
 ### search reboot entry
 Reboot system call:
@@ -37,8 +32,8 @@ Reboot system call:
 * **SyS_reboot()** / **sys_reboot()** in System.map (查找系统调用)
 
 * addr2line 获取代码位置 
-[kernel/reboot.c:280]
 ```
+[kernel/reboot.c]
 SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 		void __user *, arg)
 ```
@@ -50,6 +45,7 @@ sys_reboot(int magic1, int magic2, unsigned int cmd, void __user* arg)
 
 * 分析 sys_reboot() code，找到 cmd 列表
 ```
+[include/uapi/linux/reboot.h]
 /*
  * Commands accepted by the _reboot() system call.
  *
@@ -75,15 +71,30 @@ sys_reboot(int magic1, int magic2, unsigned int cmd, void __user* arg)
 
 * RESTART / RESTART2 分别调用如下 flow
 ```
-	case LINUX_REBOOT_CMD_RESTART:
-		kernel_restart(NULL);
-		break;
-		
-	case LINUX_REBOOT_CMD_RESTART2:
-		ret = strncpy_from_user(&buffer[0], arg, sizeof(buffer) - 1);
-		...
-		kernel_restart(buffer);
-		break;
+[kernel/reboot.c]
+280 SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+281         void __user *, arg)
+282 {
+...
+315     switch (cmd) {
+316     case LINUX_REBOOT_CMD_RESTART:
+317         kernel_restart(NULL);
+318         break;
+...
+338     case LINUX_REBOOT_CMD_RESTART2:
+339         ret = strncpy_from_user(&buffer[0], arg, sizeof(buffer) - 1);
+340         if (ret < 0) {
+341             ret = -EFAULT;
+342             break;
+343         }
+344         buffer[sizeof(buffer) - 1] = '\0';
+345 
+346         kernel_restart(buffer);
+347         break;
+...
+364     }
+...
+367 }
 ```
 
 ### reboot core code
@@ -263,9 +274,9 @@ line73 : device_shutdown()
 155 }
 ```
 
-1）关本地中断
-2）停止 smp
-3）arm_pm_restart() / do_kernel_restart() 按优先级择其一执行。
+1）line141 : 关本地中断
+2）line142 : 停止 smp
+3）line144-147 : arm_pm_restart() / do_kernel_restart() 按优先级择其一执行。
 note : vexpress 平台未注册 arm_pm_restart() 。
 ```
 [kernel/reboot.c]
@@ -274,6 +285,4 @@ note : vexpress 平台未注册 arm_pm_restart() 。
 185     atomic_notifier_call_chain(&restart_handler_list, reboot_mode, cmd);
 186 }
 ```
-4）while(1) //正常流程不会执行至此。
-
-###调研各个 notify list 注册的函数
+4）line154 : while(1) //正常流程不会执行至此。
