@@ -206,3 +206,108 @@ dpm_resume_end() 包括如下 api 调用：
 606     struct dev_pm_qos   *qos;
 607 };
 ```
+
+### /sys/power 用户接口
+/sys/power/ 下的接口包括
+
+-- disk
+>  hibernate，即 STD 功能，可支持多种模式，包括
+```
+[kernel/power/hibernate.c]
+ 906 static const char * const hibernation_modes[] = {
+ 907     [HIBERNATION_PLATFORM]  = "platform",
+ 908     [HIBERNATION_SHUTDOWN]  = "shutdown",
+ 909     [HIBERNATION_REBOOT]    = "reboot",
+ 910 #ifdef CONFIG_SUSPEND
+ 911     [HIBERNATION_SUSPEND]   = "suspend",
+ 912 #endif
+ 913     [HIBERNATION_TEST_RESUME]   = "test_resume",
+ 914 };
+
+```
+>
+show : 打印 hibernation_mode
+store : 设定 hibernation_mode
+
+-- mem_sleep 
+-- pm_debug_messages  
+-- pm_print_times  
+
+-- pm_trace
+>
+提供电源管理过程的 trace 记录，由 CONFIG_PM_TRACE 定义
+
+-- pm_wakeup_irq 
+
+-- resume
+> hibernate 的逆向操作，读取 disk image，恢复系统状态
+
+-- state 
+>
+show : 显示支持的 status，如 mem，standby，freeze，disk
+store : 根据传入的字符串，进入 suspend 或 hibernate 模式
+
+-- pm_test
+>
+将 pm 分为多个步骤，每个步骤可以插入 pm test code，用于判定状态切换是否成功。
+用于测试的 debug level 如下：
+```
+[kernel/power/main.c]
+156 static const char * const pm_tests[__TEST_AFTER_LAST] = {
+157     [TEST_NONE] = "none",
+158     [TEST_CORE] = "core",
+159     [TEST_CPUS] = "processors",
+160     [TEST_PLATFORM] = "platform",
+161     [TEST_DEVICES] = "devices",
+162     [TEST_FREEZER] = "freezer",
+163 };
+```
+>
+show : 显示当前 debug level
+store : 设定当前 debug level
+
+-- wake_unlock
+-- image_size 
+-- pm_async 
+-- pm_freeze_timeout 
+-- pm_test
+-- pm_trace_dev_match
+
+-- reserved_size 
+>在 freeze，freeze_noirq 操作中保存设备驱动分配的空间，避免 STD 过程中丢失
+
+-- resume_offset 
+-- wake_lock 
+
+-- wakeup_count
+>
+用于控制 sleep 和 wakeup 同步，如正确处理 sleep 过程中发生的 wakeup 操作。
+
+### 其它 pm 接口
+
+-- debugfs/suspend_status
+> 以 debugfs 的形式提供 suspend 统计信息，打印格式如下：
+```
+/ # cat /sys/kernel/debug/suspend_stats 
+success: 0
+fail: 0
+failed_freeze: 0
+failed_prepare: 0
+failed_suspend: 0
+failed_suspend_late: 0
+failed_suspend_noirq: 0
+failed_resume: 0
+failed_resume_early: 0
+failed_resume_noirq: 0
+failures:
+  last_failed_dev:	
+			
+  last_failed_errno:	0
+			0
+  last_failed_step:	
+```
+
+-- /dev/snaphost
+>向用户提供 software 的 STD 操作
+
+
